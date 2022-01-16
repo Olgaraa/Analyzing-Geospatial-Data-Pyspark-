@@ -1,28 +1,15 @@
-# File location and type
-file_location = "/FileStore/tables/MODIS_C6_1_Global_7d.csv"
-file_type = "csv"
-
-
-# CSV options
-infer_schema = "false"
-first_row_is_header = "true"
-delimiter = ","
-
-# The applied options are for CSV files. For other file types, these will be ignored.
-df = spark.read.format(file_type) \
-  .option("inferSchema", infer_schema) \
-  .option("header", first_row_is_header) \
-  .option("sep", delimiter) \
-  .load(file_location)
-
-df.show(5)
+#create a pandas df from csv
+import pandas as pd
+url="https://firms.modaps.eosdis.nasa.gov/data/active_fire/modis-c6.1/csv/MODIS_C6_1_Global_24h.csv"
+pandas_df=pd.read_csv(url)
+print(pandas_df)
 
 #write the whole file into ADLS
+spark_df=spark.createDataFrame(pandas_df)
 conf=dbutils.secrets.get (scope='mysqlKV', key='conf')
 spark.conf.set(conf,dbutils.secrets.get(scope="mysqlKV",key="adls"))
-destination_path=dbutils.secrets.get (scope='mysqlKV', key='destination_path')
-df.write.format('csv').mode('overwrite').option('header', True).option('sep', ',').save(destination_path + '/Databricks_CSV')
-
+destination_path="abfss://input@olgabadl.dfs.core.windows.net"
+spark_df.write.format('csv').mode('overwrite').option('header', True).option('sep', ',').save(destination_path + '/Databricks_CSV')
 
 #filter out the data
 dbutils.library.installPyPI("geopandas")
@@ -30,9 +17,6 @@ dbutils.library.installPyPI("reverse_geocoder")
 import reverse_geocoder
 import pandas as pd
 import geopandas
-
-#converting the df to Pandas df
-pandas_df = df.toPandas()
 
 #changing the data type from string to float
 pandas_df['latitude']=pandas_df['latitude'].astype(float)
@@ -43,7 +27,6 @@ pickup_coords = pandas_df[['latitude', 'longitude']].apply(tuple, axis=1).tolist
 pickup_results = reverse_geocoder.search(pickup_coords, mode=2)
 pandas_df['country'] = [x['cc'] for x in pickup_results]
 
-
 #check which countries have the most occurences
 from pyspark.sql.functions import countDistinct
 from pyspark.sql.functions import desc
@@ -51,7 +34,7 @@ check_countries=spark.createDataFrame(pandas_df)
 check_countries = check_countries.groupBy("country").count().orderBy(desc("count"))
 check_countries.show(100)
 
-#keeping the rows with SS (South Sudan) country code
+#keeping the rows with AU (Australia) country code
 pandas_df = pandas_df[pandas_df.country == 'AU']
 print(pandas_df)
 
@@ -70,11 +53,20 @@ from geopandas import GeoDataFrame
 geometry=[Point(xy) for xy in zip (pandas_df['longitude'], pandas_df['latitude'])]
 gdf = GeoDataFrame(pandas_df, geometry=geometry)  
 
-#creating a map
-world = geopandas.read_file(geopandas.datasets.get_path('naturalearth_lowres'))
-world.head()
-world = geopandas.read_file(geopandas.datasets.get_path('naturalearth_lowres'))
-#Australia's map
-gdf.plot(ax=world[world.name == 'Australia'].plot (figsize=(25,10)), marker='.', color='pink')
 #World map
+world = geopandas.read_file(geopandas.datasets.get_path('naturalearth_lowres'))
 gdf.plot(ax=world.plot (figsize=(25,10)), marker='.', color='pink')
+
+#Australia's map
+gdf.plot(ax=world[world.name == 'Australia'].plot (figsize=(25,10)), marker='.',color='pink')
+
+#Interactive world map
+dbutils.library.installPyPI("matplotlib")
+dbutils.library.installPyPI("folium")
+dbutils.library.installPyPI("mapclassify")
+m = world.explore()
+gdf.explore(m=m, color="pink")
+
+#Interactive Australia's map
+m = world[world['name'] =='Australia'].explore()
+gdf.explore(m=m, color="pink")
