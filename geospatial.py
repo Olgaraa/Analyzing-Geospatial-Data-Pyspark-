@@ -7,6 +7,7 @@ print(pandas_df)
 #write the whole file into ADLS
 spark_df=spark.createDataFrame(pandas_df)
 conf=dbutils.secrets.get (scope='mysqlKV', key='conf')
+#conf should be in the following format: fs.azure.account.key.{ADLS_storage_account_name}.dfs.core.windows.net
 spark.conf.set(conf,dbutils.secrets.get(scope="mysqlKV",key="adls"))
 destination_path="abfss://input@olgabadl.dfs.core.windows.net"
 spark_df.write.format('csv').mode('overwrite').option('header', True).option('sep', ',').save(destination_path + '/Databricks_CSV')
